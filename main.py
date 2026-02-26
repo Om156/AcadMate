@@ -55,7 +55,7 @@ app.include_router(admin_router.admin_router, prefix="/api/v1")
 
 # Socket.io setup
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
-socket_app = socketio.ASGIApp(sio, app)
+app = socketio.ASGIApp(sio, other_asgi_app=app)
 
 @app.get("/")
 def read_root():
@@ -86,4 +86,5 @@ async def send_message(sid, data):
     await sio.emit('new_message', data, room=str(data['request_id']))
 
 # Run with: uvicorn main:socket_app --reload --port 8000
+
 
