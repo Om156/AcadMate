@@ -1,24 +1,25 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
-from typing import List
 import socketio
 import os
 
-# Important: Core imports before routers to avoid initialization order issues
-import models, schemas, auth, database, utils
+# Core imports
+import models, database
 
 # Router imports
 from routers import auth_router, requests_router, messages_router, admin_router, users_router
 
-def _initialize_database() -> None:
+
+# ---------------------------
+# Database Initialization
+# ---------------------------
+def initialize_database() -> None:
     try:
         models.Base.metadata.create_all(bind=database.engine)
     except SQLAlchemyError:
         database_url = os.getenv("DATABASE_URL", "<not set>")
-        # Avoid printing credentials while still showing the target host/db.
         safe_target = database_url.split("@")[-1] if "@" in database_url else database_url
         raise RuntimeError(
             "Database initialization failed. Ensure PostgreSQL is running and "
@@ -26,55 +27,89 @@ def _initialize_database() -> None:
         ) from None
 
 
-# Create DB tables
-_initialize_database()
+# ---------------------------
+# Create FastAPI App
+# ---------------------------
+fastapi_app = FastAPI(title="AcadMate API")
 
-app = FastAPI(title="AcadMate API")
 
-# Configure CORS
-app.add_middleware(
+# ---------------------------
+# Startup Event
+# ---------------------------
+@fastapi_app.on_event("startup")
+def startup_event():
+    initialize_database()
+
+
+# ---------------------------
+# CORS Configuration
+# ---------------------------
+fastapi_app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5500", "http://127.0.0.1:5500", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Mount uploads directory
+
+# ---------------------------
+# Uploads Directory Setup
+# ---------------------------
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+fastapi_app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# Include Routers with /api/v1 prefix
-app.include_router(auth_router.router, prefix="/api/v1/auth")
-app.include_router(users_router.router, prefix="/api/v1/users")
-app.include_router(requests_router.router, prefix="/api/v1")
-app.include_router(messages_router.router, prefix="/api/v1")
-app.include_router(admin_router.admin_router, prefix="/api/v1")
 
-# Socket.io setup
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
-app = socketio.ASGIApp(sio, other_asgi_app=app)
+# ---------------------------
+# Include Routers
+# ---------------------------
+fastapi_app.include_router(auth_router.router, prefix="/api/v1/auth")
+fastapi_app.include_router(users_router.router, prefix="/api/v1/users")
+fastapi_app.include_router(requests_router.router, prefix="/api/v1")
+fastapi_app.include_router(messages_router.router, prefix="/api/v1")
+fastapi_app.include_router(admin_router.admin_router, prefix="/api/v1")
 
-@app.get("/")
+
+# ---------------------------
+# Root Route
+# ---------------------------
+@fastapi_app.get("/")
 def read_root():
     return {"message": "Welcome to AcadMate API", "status": "running"}
 
+
+# ---------------------------
+# Socket.IO Setup
+# ---------------------------
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+
+# Final ASGI app exposed to uvicorn
+app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)
+
+
+# ---------------------------
 # Socket Events
+# ---------------------------
 @sio.event
 async def join_room(sid, data):
-    room = data['request_id']
+    room = data["request_id"]
     await sio.enter_room(sid, str(room))
+
 
 @sio.event
 async def send_message(sid, data):
     db = database.SessionLocal()
     try:
         new_msg = models.Message(
-            request_id=data['request_id'],
-            sender_id=data['sender_id'],
-            content=data['content']
+            request_id=data["request_id"],
+            sender_id=data["sender_id"],
+            content=data["content"],
         )
         db.add(new_msg)
         db.commit()
@@ -82,9 +117,5 @@ async def send_message(sid, data):
         print(f"Error saving message: {e}")
     finally:
         db.close()
-    
-    await sio.emit('new_message', data, room=str(data['request_id']))
 
-# Run with: uvicorn main:socket_app --reload --port 8000
-
-
+    await sio.emit("new_message", data, room=str(data["request_id"]))
