@@ -44,18 +44,26 @@ def startup_event():
 # ---------------------------
 # CORS Configuration
 # ---------------------------
-fastapi_app.add_middleware(
+# fastapi_app.add_middleware(
+#     CORSMiddleware,
+#     allow_origin_regex=r"https://.*\.vercel\.app",
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+# Configure CORS
+app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://acad-mate1.vercel.app",
         "http://localhost:5500",
         "http://127.0.0.1:5500",
+        "http://localhost:3000",
+        "https://acad-mate1-git-main-om156s-projects.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # ---------------------------
 # Uploads Directory Setup
@@ -119,4 +127,5 @@ async def send_message(sid, data):
         db.close()
 
     await sio.emit("new_message", data, room=str(data["request_id"]))
+
 
