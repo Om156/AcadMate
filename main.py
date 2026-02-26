@@ -41,6 +41,9 @@ app.add_middleware(
 )
 
 # Mount uploads directory
+if not os.path.exists("uploads"):
+    os.makedirs("uploads")
+
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Include Routers with /api/v1 prefix
@@ -83,3 +86,4 @@ async def send_message(sid, data):
     await sio.emit('new_message', data, room=str(data['request_id']))
 
 # Run with: uvicorn main:socket_app --reload --port 8000
+
